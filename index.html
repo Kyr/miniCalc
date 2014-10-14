@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title></title>
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+	<style type="text/css">
+		#main, tr, td, th {
+			border: 1px solid black;
+			border-collapse: collapse;
+		}
+
+		th {
+			background: grey;
+		}
+
+		td {
+			min-width: 4em;
+		}
+	</style>
+	<!-- <link rel="stylesheet" href="" /> -->
+	<!-- <script type="text/javascript" src=""></script> -->
+</head>
+<body>
+<!-- <nav class="navbar navbar-fixed-top"></nav> -->
+<header class="header"></header>
+<div class="container">
+	<table id="main">
+		<tr>
+			<th></th>
+			<th>A</th>
+			<th>B</th>
+		</tr>
+		<tr data-index="1">
+			<th>1</th>
+			<td class="calculated" data-index="A"></td>
+			<td class="calculated" data-index="B"></td>
+		</tr>
+		<tr data-index="2">
+			<th>2</th>
+			<td class="calculated" data-index="A"></td>
+			<td class="calculated" data-index="B"></td>
+		</tr>
+	</table>
+
+</div>
+<footer class="footer"></footer>
+</body>
+<script type="text/javascript">
+var cellsIndex = {};
+var TEST_FORMULA = /^=([\s+-AB12]+)/;
+var ADDRESS = /[AB][12]/;
+
+/**
+ * Делаем ячейку „умной“
+ *
+ * @param cell
+ * @constructor
+ */
+Cell = function (cell) {
+	var ERROR_TEXT = 'Error';
+	var formula = [];
+	var text = '';
+	var error = false;
+	var depended = {};
+
+	var selfAddress = cell.getAttribute('data-index') + cell.parentNode.getAttribute('data-index');
+
+	cell.setAttribute('contenteditable', true);
+
+	cell.onfocus = cellGotFocus;
+	cell.onblur = cellLostFocus;
+
+	this.getValue = function () {
+		if (error) {
+			throw new Error('Cell ' + selfAddress + ' have an error.');
+		}
+
+		return Number(text);
+	};
+
+	this.reCalculate = function () {
+		try {
+			text = calculate();
+			unsetError();
+			subscribe();
+		} catch (e) {
+			setError();
+			console.log(e);
+		} finally {
+			cell.textContent = text;
+		}
+		Object.keys(depended).map(function (address) {
+			cellsIndex[address].reCalculate();
+		});
+
+	};
+
+	this.notifyMe = function (caller) {
+		depended[caller] = true;
+	};
+
+	this.doNotNotifyMe = function (caller) {
+		delete depended[caller];
+	};
+
+
+	function cellGotFocus() {
+		if (formula.length) {
+			cell.textContent = '=' + formula.join(' ');
+		}
+	}
+
+	function cellLostFocus() {
+		var previousText = text;
+
+		if (TEST_FORMULA.test(cell.textContent)) {
+			unSubscribe();
+
+			formula = splitFormula(cell.textContent.match(TEST_FORMULA)[1]);
+
+			try {
+				text = calculate();
+				unsetError();
+				subscribe();
+			} catch (e) {
+				setError();
+				console.log(e);
+			} finally {
+				cell.textContent = text;
+			}
+
+		} else {
+			unsetError();
+			formula = [];
+			text = cell.textContent;
+		}
+
+		if (text !== previousText) {
+			Object.keys(depended).map(function (address) {
+				cellsIndex[address].reCalculate();
+			});
+		}
+
+	}
+
+	function unSubscribe() {
+		for (var i = 0, element; element = formula[i]; i++) {
+			if (ADDRESS.test(element)) {
+				cellsIndex[element].doNotNotifyMe(selfAddress);
+			}
+		}
+	}
+
+	function subscribe() {
+		for (var i = 0, element; element = formula[i]; i++) {
+			if (ADDRESS.test(element)) {
+				cellsIndex[element].notifyMe(selfAddress);
+			}
+		}
+	}
+
+	function setError() {
+		text = ERROR_TEXT;
+		error = true;
+		cell.classList.add('error');
+	}
+
+	function unsetError() {
+		error = false;
+		cell.classList.remove('error');
+	}
+
+	/**
+	 * Обсчитывает значение на основе this.formula, при необходимости запрашивает значения у других ячеек
+	 * @return Number
+	 * @throws Error
+	 */
+	function calculate() {
+		var result = 0;
+		var operandStack = [];
+		var operatorStack = [];
+
+		var operators = {
+			'+': function (input) {
+				result = input.reduce(function (previous, current) {
+					return previous + Number(current);
+				}, result);
+			},
+			'-': function (input) {
+				result = input.reduce(function (previous, current) {
+					return previous - Number(current);
+				}, result);
+			}
+		};
+
+		for (var i = 0, element; element = formula[i]; i++) {
+			if (element === '+' || element === '-') {
+				if (operatorStack.length == 0) {
+					operatorStack.unshift(element);
+				} else if (operatorStack[0] !== element) {
+					operators[operatorStack.shift()](operandStack);
+					operatorStack.unshift(element);
+					operandStack = [];
+				}
+			} else {
+				if (ADDRESS.test(element)) {
+					operandStack.push(cellsIndex[element].getValue(selfAddress));
+				} else {
+					operandStack.push(element);
+				}
+
+			}
+		}
+
+		if (operatorStack.length) {
+			operators[operatorStack.shift()](operandStack);
+		} else if (operandStack.length) {
+			result = operandStack[0];
+		} else {
+//				 скорее всего что-то не так
+			throw new Error('в алгоритме лажа');
+		}
+
+		return result;
+	}
+
+	/**
+	 * Делит строку из ячейки на операторы и операнды
+	 *
+	 * @param formula cell.textContent
+	 * @returns {Array}
+	 */
+	function splitFormula(formula) {
+		var result = [];
+		var block = '';
+
+		function addBlock(block) {
+			if (block.length) {
+				result.push(block);
+			}
+		}
+
+		for (var i = 0, char; char = formula[i]; i++) {
+			if (char === ' ') {
+				if (block.length) {
+					addBlock(block);
+					block = '';
+				}
+			} else if (char === '+' || char === '-') {
+				addBlock(block);
+				addBlock(char);
+				block = '';
+			} else {
+				block += char;
+			}
+
+		}
+		result.push(block);
+		return result;
+	}
+
+};
+
+(function init(table) {
+	var cells = table.querySelectorAll('td.calculated');
+	var columnIndex, rowIndex;
+	for (var i = 0, cell; cell = cells[i]; i++) {
+		columnIndex = cell.getAttribute('data-index');
+		rowIndex = cell.parentNode.getAttribute('data-index');
+		cellsIndex[columnIndex + rowIndex] = new Cell(cell);
+	}
+})(document.getElementById('main'));
+
+</script>
+</html>

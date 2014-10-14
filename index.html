@@ -32,13 +32,13 @@
 		</tr>
 		<tr data-index="1">
 			<th>1</th>
-			<td class="calculated" data-index="A"></td>
-			<td class="calculated" data-index="B"></td>
+			<td class="calculated" data-index="A">123</td>
+			<td class="calculated" data-index="B">=A1</td>
 		</tr>
 		<tr data-index="2">
 			<th>2</th>
-			<td class="calculated" data-index="A"></td>
-			<td class="calculated" data-index="B"></td>
+			<td class="calculated" data-index="A">=A1+3</td>
+			<td class="calculated" data-index="B">=A1+A2</td>
 		</tr>
 	</table>
 
@@ -64,6 +64,9 @@ Cell = function (cell) {
 	var depended = {};
 
 	var selfAddress = cell.getAttribute('data-index') + cell.parentNode.getAttribute('data-index');
+
+// initial parse
+	cellLostFocus();
 
 	cell.setAttribute('contenteditable', true);
 
